@@ -1,0 +1,23 @@
+# Build artifacts
+**/dist/
+**/build/
+**/.cache/
+
+# Test artifacts
+**/coverage/
+**/.nyc_output/
+
+# Node modules (rebuilt inside the image)
+**/node_modules/
+
+# Dev / IDE / OS files
+.git/
+.gitignore
+.vscode/
+.idea/
+.DS_Store
+**/*.log
+
+# Docs aren't needed at build time
+docs/
+README.md

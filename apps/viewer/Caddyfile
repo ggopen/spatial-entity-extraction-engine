@@ -1,0 +1,21 @@
+# Caddy serves the SEEE viewer as a static site.
+# Caddyfile uses placeholder $PORT (default 8080) so the same image runs on
+# any PaaS / Kubernetes / docker-compose.
+
+:{$PORT:8080} {
+	root * /app/dist
+	file_server
+	encode gzip
+
+	# SPA fallback: serve index.html for unknown routes (e.g. /entity/123).
+	try_files {path} /index.html
+
+	# Cache fingerprinted assets aggressively, never the HTML.
+	header /assets/* Cache-Control "public, max-age=31536000, immutable"
+	header /index.html Cache-Control "no-cache"
+
+	# Permissive CORS for the tileset sources the demo fetches at runtime.
+	header Access-Control-Allow-Origin "*"
+	header Access-Control-Allow-Methods "GET, HEAD, OPTIONS"
+	header Access-Control-Allow-Headers "Range, Content-Type"
+}

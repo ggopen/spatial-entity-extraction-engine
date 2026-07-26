@@ -1,0 +1,27 @@
+{
+  "name": "@seee/workers",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --sourcemap",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@seee/core": "*",
+    "@seee/graph": "*",
+    "@seee/segmentation": "*",
+    "@seee/topology": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}

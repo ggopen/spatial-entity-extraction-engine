@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SEEE · Spatial Entity Extraction Engine</title>
+    <meta name="description" content="Spatial Entity Extraction Engine — extracts spatial entities from 3D meshes (3DTiles/OSGB/OBJ/GLTF)." />
+    <!-- Cesium (loaded from CDN to keep the bundle small for GitHub Pages) -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cesium@1.118.2/Build/Cesium/Widgets/widgets.css" />
+    <script src="https://cdn.jsdelivr.net/npm/cesium@1.118.2/Build/Cesium/Cesium.js"></script>
+    <script>
+      // Tell Cesium where its static assets live (Workers/Assets/ThirdParty).
+      window.CESIUM_BASE_URL = "https://cdn.jsdelivr.net/npm/cesium@1.118.2/Build/Cesium/";
+    </script>
+  </head>
+  <body>
+    <div id="app">
+      <header id="topbar">
+        <h1>SEEE <span class="sub">Spatial Entity Extraction Engine</span></h1>
+        <div class="status" id="status">idle</div>
+      </header>
+      <aside id="sidebar">
+        <section class="panel">
+          <label>Mesh URL</label>
+          <input id="meshUrl" type="text" value="https://data.mars3d.cn/3dtiles/qx-simiao/tileset.json" />
+          <div class="row">
+            <button id="loadBtn">Load</button>
+            <button id="extractBtn" disabled>Extract Entities</button>
+            <button id="clearBtn">Clear</button>
+          </div>
+        </section>
+        <section class="panel">
+          <div class="stats" id="stats">
+            <div><span>triangles</span><b id="statTri">0</b></div>
+            <div><span>regions</span><b id="statReg">0</b></div>
+            <div><span>entities</span><b id="statEnt">0</b></div>
+            <div><span>time</span><b id="statTime">0ms</b></div>
+          </div>
+        </section>
+        <section class="panel">
+          <label>Entity List <span class="muted">(click to highlight / fly to)</span></label>
+          <input id="filterInput" type="text" placeholder="filter by id / label..." />
+          <ul id="entityList"></ul>
+        </section>
+        <section class="panel">
+          <label>Spatial relations</label>
+          <select id="relType">
+            <option value="">— all —</option>
+            <option value="touch">touch</option>
+            <option value="adjacent">adjacent</option>
+            <option value="support">support</option>
+            <option value="contain">contain</option>
+            <option value="intersect">intersect</option>
+          </select>
+          <ul id="relList"></ul>
+        </section>
+      </aside>
+      <main id="cesiumContainer"></main>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

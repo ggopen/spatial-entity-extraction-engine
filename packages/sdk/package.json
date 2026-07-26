@@ -1,0 +1,33 @@
+{
+  "name": "@seee/sdk",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --sourcemap",
+    "lint": "tsc --noEmit",
+    "benchmark": "node --experimental-vm-node dist/benchmark.js",
+    "test:smoke": "node dist/smoke.js"
+  },
+  "dependencies": {
+    "@seee/core": "*",
+    "@seee/geometry": "*",
+    "@seee/graph": "*",
+    "@seee/segmentation": "*",
+    "@seee/entity": "*",
+    "@seee/topology": "*",
+    "@seee/scene-graph": "*",
+    "@seee/workers": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}
