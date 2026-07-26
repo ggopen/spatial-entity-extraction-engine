@@ -76,13 +76,25 @@ function initViewer(): void {
     entities: viewer.entities,
     camera: viewer.camera,
   });
-  // Click handler: pick an entity by world position.
+  // Click handler: pick an entity.
+  // Strategy: first try Cesium's built-in pick() to detect entity overlays (box).
+  // If that misses, fall back to pickPosition → engine.pick() for 3D model surface.
   const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
   handler.setInputAction((evt: any) => {
+    // 1) Try Cesium's pick() — detects our box overlays.
+    const picked = viewer.scene.pick(evt.position);
+    if (picked?.id) {
+      // Check if it's one of our entity boxes (id format: "seee-ent-NNN").
+      const match = (picked.id as string).match(/^seee-ent-(\d+)$/);
+      if (match) {
+        selectEntity(Number(match[1]));
+        return;
+      }
+    }
+    // 2) Fallback: pick the 3D model surface and match via engine.pick().
     const cartesian = viewer.scene.pickPosition(evt.position);
     if (!cartesian) return;
-    const p = Cesium.Cartesian3.fromCartesian(cartesian);
-    const entity = engine.pick([p.x, p.y, p.z]);
+    const entity = engine.pick([cartesian.x, cartesian.y, cartesian.z]);
     if (entity) {
       selectEntity(entity.id);
     }
@@ -102,7 +114,9 @@ async function loadTileset(): Promise<void> {
     tileset = await Cesium.Cesium3DTileset.fromUrl(url, {
       skipLevelOfDetail: true,
       preferLeaves: false,
-      dynamicScreenSpaceError: true,
+      dynamicScreenSpaceError: false,
+      preloadWhenHidden: false,
+      cullWithChildrenBounds: false,
     });
     viewer.scene.primitives.add(tileset);
     await viewer.zoomTo(tileset);
