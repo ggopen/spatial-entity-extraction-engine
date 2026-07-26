@@ -34,7 +34,9 @@ export class MeshLoader {
   /** Detect a format from a URI or magic bytes. */
   detectFormat(uri: string, bytes?: ArrayBuffer): MeshFormat {
     const lower = uri.toLowerCase();
-    if (lower.endsWith("tileset.json") || lower.includes("/3dtiles/")) return "3dtiles";
+    // Only treat the tileset descriptor itself as the "3dtiles" container —
+    // individual tile content (.b3dm/.glb/.i3dm/.pnts) is decoded directly.
+    if (lower.endsWith("tileset.json")) return "3dtiles";
     if (lower.endsWith(".osgb")) return "osgb";
     if (lower.endsWith(".obj")) return "obj";
     if (lower.endsWith(".gltf")) return "gltf";
@@ -47,6 +49,7 @@ export class MeshLoader {
       if (bytes.byteLength >= 4) {
         const magic = view.getUint32(0, true);
         if (magic === 0x46546c67) return "glb"; // 'glTF'
+        if (magic === 0x6d643362) return "glb"; // 'b3dm' — treat as GLB (header stripped later)
       }
     }
     return "obj";
@@ -81,7 +84,8 @@ export class MeshLoader {
     let trianglesLoaded = 0;
     const onProgress = opts.onProgress;
 
-    const visit = async (node: any, parentTransform: number[], depth: number): Promise<void> => {
+    /** Visit a tile-tree node. Nested tileset JSON content URIs are recursed into. */
+    const visit = async (node: any, parentTransform: number[], depth: number, nodeBase: string): Promise<void> => {
       if (meshes.length >= maxTiles) return;
       if (trianglesLoaded >= maxTriangles) return;
       const maxDepth = opts.maxDepth ?? Infinity;
@@ -93,25 +97,43 @@ export class MeshLoader {
       const content = node.content;
       const geometricError = node.geometricError ?? 0;
 
-      if (content?.uri) {
+      // 3D Tiles 0.0 spec uses `content.url`; 1.0 uses `content.uri`.
+      const contentUri: string | undefined = content?.uri ?? content?.url;
+      if (contentUri) {
         try {
-          const uri = resolveUri(base, content.uri);
-          const data = await fetchArrayBuffer(uri);
-          const fmt = this.detectFormat(uri, data);
-          const decoder = this.decoders.get(fmt === "glb" ? "glb" : fmt);
-          if (decoder) {
-            const result = await decoder(stripB3dmHeader(data, uri), uri);
-            const list = Array.isArray(result) ? result : [result];
-            for (const m of list) {
-              m.transform = combined as any;
-              meshes.push(m);
-              // Approximate triangle count from indices (or positions/3).
-              trianglesLoaded += m.indices ? m.indices.length / 3 : m.positions.length / 9;
+          const uri = resolveUri(nodeBase, contentUri);
+          // Nested tileset: content URI ends with .json (external tileset).
+          if (uri.toLowerCase().endsWith(".json")) {
+            const nested = await fetchJson(uri);
+            const nestedBase = baseUrl(uri);
+            if (nested.root) {
+              await visit(nested.root, combined, depth + 1, nestedBase);
             }
-            onProgress?.({ tilesLoaded: meshes.length, depth, geometricError });
+          } else {
+            const data = await fetchArrayBuffer(uri);
+            const fmt = this.detectFormat(uri, data);
+            const decoder = this.decoders.get(fmt === "glb" ? "glb" : fmt);
+            if (decoder) {
+              const result = await decoder(stripB3dmHeader(data, uri), uri);
+              const list = Array.isArray(result) ? result : [result];
+              for (const m of list) {
+                m.transform = combined as any;
+                meshes.push(m);
+                // Approximate triangle count from indices (or positions/3).
+                trianglesLoaded += m.indices ? m.indices.length / 3 : m.positions.length / 9;
+              }
+              onProgress?.({ tilesLoaded: meshes.length, depth, geometricError });
+            } else {
+              if (typeof process !== "undefined" && process.env?.SEEE_DEBUG) {
+                console.warn(`[MeshLoader] no decoder for format "${fmt}" (${uri})`);
+              }
+            }
           }
-        } catch {
+        } catch (err) {
           // Skip a single tile failure; keep going.
+          if (typeof process !== "undefined" && process.env?.SEEE_DEBUG) {
+            console.warn(`[MeshLoader] failed tile ${contentUri}:`, (err as Error)?.message ?? err);
+          }
         }
       }
 
@@ -122,13 +144,13 @@ export class MeshLoader {
       for (const child of children) {
         if (meshes.length >= maxTiles) break;
         if (trianglesLoaded >= maxTriangles) break;
-        await visit(child, combined, depth + 1);
+        await visit(child, combined, depth + 1, nodeBase);
       }
     };
 
     const rootTransform = (tileset.transform as number[] | undefined) ?? identityMatrix();
     if (tileset.root) {
-      await visit(tileset.root, rootTransform, 0);
+      await visit(tileset.root, rootTransform, 0, base);
     }
     return meshes;
   }
@@ -136,14 +158,27 @@ export class MeshLoader {
 
 /* --------------------------------- helpers --------------------------------- */
 
+/**
+ * Fetch options that work both in browsers (where setting UA is forbidden) and
+ * in Node (where some CDNs — e.g. mars3d — reject requests without a UA).
+ */
+function fetchOpts(): RequestInit {
+  // Browser fetch sets its own UA; Node fetch defaults to "node" which some
+  // CDNs block with HTTP 503, so override it.
+  if (typeof globalThis.process !== "undefined" && globalThis.process.versions?.node) {
+    return { headers: { "User-Agent": "SEEE-MeshLoader/1.0 (+https://github.com/ggopen/spatial-entity-extraction-engine)" } };
+  }
+  return {};
+}
+
 async function fetchJson(uri: string): Promise<any> {
-  const res = await fetch(uri);
+  const res = await fetch(uri, fetchOpts());
   if (!res.ok) throw new Error(`HTTP ${res.status} fetching ${uri}`);
   return res.json();
 }
 
 async function fetchArrayBuffer(uri: string): Promise<ArrayBuffer> {
-  const res = await fetch(uri);
+  const res = await fetch(uri, fetchOpts());
   if (!res.ok) throw new Error(`HTTP ${res.status} fetching ${uri}`);
   return res.arrayBuffer();
 }
@@ -320,14 +355,28 @@ function decodeGlb(data: ArrayBuffer): RawMesh[] {
     }
     throw new Error("Not a valid GLB file");
   }
-  // GLB header: magic(4) + version(4) + length(4) = 12 bytes
+  const version = view.getUint32(4, true);
+  // GLB v1 (legacy) header: magic(4) + version(4) + length(4) + sceneLength(4) + sceneFormat(4) = 20 bytes.
+  // Scene chunk follows immediately; remaining bytes are the binary body.
+  if (version === 1) {
+    const sceneLen = view.getUint32(12, true);
+    const sceneStart = 20;
+    const sceneEnd = sceneStart + sceneLen;
+    if (sceneEnd > data.byteLength) throw new Error("GLB v1 scene overflows file");
+    const jsonText = new TextDecoder().decode(new Uint8Array(data, sceneStart, sceneLen));
+    const json = JSON.parse(jsonText);
+    const bin = data.slice(sceneEnd);
+    return parseGltfJson(json, bin);
+  }
+  // GLB v2 header: magic(4) + version(4) + length(4) = 12 bytes, then typed chunks.
   let offset = 12;
   let json: any = null;
   let bin: ArrayBuffer | null = null;
-  while (offset < data.byteLength) {
+  while (offset + 8 <= data.byteLength) {
     const chunkLen = view.getUint32(offset, true);
     const chunkType = view.getUint32(offset + 4, true);
     offset += 8;
+    if (offset + chunkLen > data.byteLength) break;
     const chunkData = data.slice(offset, offset + chunkLen);
     offset += chunkLen;
     if (chunkType === 0x4e4f534a) {
@@ -345,17 +394,37 @@ function decodeGlb(data: ArrayBuffer): RawMesh[] {
 function parseGltfJson(json: any, bin: ArrayBuffer): RawMesh[] {
   const meshes: RawMesh[] = [];
   if (!json.meshes) return meshes;
-  const accessors = json.accessors ?? [];
-  const bufferViews = json.bufferViews ?? [];
-  const buffers = json.buffers ?? [];
-  const getBuffer = (bvIndex: number): ArrayBuffer => {
-    const bv = bufferViews[bvIndex];
+
+  // Normalize glTF 1.0 (which uses object-keyed maps) to 2.0 (arrays).
+  // In v1: meshes/bufferViews/accessors/buffers are dicts of {key: def};
+  // cross-references use string keys instead of integer indices, and the
+  // GLB body is referenced by the reserved buffer name "binary_glTF".
+  const isV1 = !Array.isArray(json.meshes) && typeof json.meshes === "object";
+  const accessors = isV1 ? Object.values(json.accessors ?? {}) : json.accessors ?? [];
+  const bufferViews = isV1 ? Object.values(json.bufferViews ?? {}) : json.bufferViews ?? [];
+  const buffers = isV1 ? Object.values(json.buffers ?? {}) : json.buffers ?? [];
+  // Map v1 string keys → array indices for accessor/bufferView/buffer lookups.
+  const accIndex = new Map<any, number>();
+  const bvIndex = new Map<any, number>();
+  const bufIndex = new Map<any, number>();
+  if (isV1) {
+    Object.keys(json.accessors ?? {}).forEach((k, i) => accIndex.set(k, i));
+    Object.keys(json.bufferViews ?? {}).forEach((k, i) => bvIndex.set(k, i));
+    Object.keys(json.buffers ?? {}).forEach((k, i) => bufIndex.set(k, i));
+  }
+
+  const getBuffer = (bvIdx: number): ArrayBuffer => {
+    const bv = bufferViews[bvIdx];
     if (!bv) return new ArrayBuffer(0);
-    const buffer = buffers[bv.buffer] ?? {};
+    // v1 stores buffer as a string key; v2 as an integer index.
+    const bufKey = isV1 ? (bv.buffer as string) : (bv.buffer as number);
+    const bufIdx = isV1 ? (bufIndex.get(bufKey) ?? 0) : (bufKey as number);
+    const buffer = buffers[bufIdx] ?? {};
     let src: ArrayBuffer;
-    if (bv.buffer === 0 && bin && (!buffer.uri || buffer.uri === undefined)) {
+    const isBinaryV1 = isV1 && (bufKey === "binary_glTF" || bufKey === "");
+    if (isBinaryV1 || (bv.buffer === 0 && bin && (!buffer.uri || buffer.uri === undefined))) {
       src = bin;
-    } else if (buffer.uri && buffer.uri.startsWith("data:")) {
+    } else if (buffer.uri && typeof buffer.uri === "string" && buffer.uri.startsWith("data:")) {
       // inline data URI — best-effort decode
       src = decodeDataUri(buffer.uri);
     } else {
@@ -363,33 +432,47 @@ function parseGltfJson(json: any, bin: ArrayBuffer): RawMesh[] {
     }
     const off = bv.byteOffset ?? 0;
     const len = bv.byteLength ?? src.byteLength - off;
+    if (off + len > src.byteLength) return src.slice(off);
     return src.slice(off, off + len);
   };
 
-  for (const meshDef of json.meshes) {
+  const resolveAccessor = (ref: any): any => {
+    if (ref === undefined || ref === null) return undefined;
+    if (isV1 && typeof ref === "string") return accessors[accIndex.get(ref) ?? 0];
+    return accessors[ref as number];
+  };
+  const resolveBufferView = (ref: any): number => {
+    if (isV1 && typeof ref === "string") return bvIndex.get(ref) ?? 0;
+    return ref as number;
+  };
+
+  const meshList = isV1 ? Object.values(json.meshes) : json.meshes;
+  for (const meshDef of meshList) {
     for (const prim of meshDef.primitives) {
-      const posAccessor = accessors[prim.attributes?.POSITION];
+      const posAccessor = resolveAccessor(prim.attributes?.POSITION);
       if (!posAccessor) continue;
-      const posBuf = getBuffer(posAccessor.bufferView);
+      const posBuf = getBuffer(resolveBufferView(posAccessor.bufferView));
       const positions = new Float32Array(
         posBuf,
         posAccessor.byteOffset ?? 0,
         Math.floor(posBuf.byteLength / 4),
       ).slice();
       let indices: Uint32Array | undefined;
-      if (prim.indices !== undefined) {
-        const idxAcc = accessors[prim.indices];
-        const idxBuf = getBuffer(idxAcc.bufferView);
-        const idxOff = idxAcc.byteOffset ?? 0;
-        const compType = idxAcc.componentType ?? 5125;
-        if (compType === 5125) {
-          indices = new Uint32Array(idxBuf, idxOff, idxAcc.count).slice();
-        } else if (compType === 5123) {
-          const u16 = new Uint16Array(idxBuf, idxOff, idxAcc.count);
-          indices = Uint32Array.from(u16);
-        } else {
-          const u8 = new Uint8Array(idxBuf, idxOff, idxAcc.count);
-          indices = Uint32Array.from(u8);
+      if (prim.indices !== undefined && prim.indices !== null) {
+        const idxAcc = resolveAccessor(prim.indices);
+        if (idxAcc) {
+          const idxBuf = getBuffer(resolveBufferView(idxAcc.bufferView));
+          const idxOff = idxAcc.byteOffset ?? 0;
+          const compType = idxAcc.componentType ?? 5125;
+          if (compType === 5125) {
+            indices = new Uint32Array(idxBuf, idxOff, idxAcc.count).slice();
+          } else if (compType === 5123) {
+            const u16 = new Uint16Array(idxBuf, idxOff, idxAcc.count);
+            indices = Uint32Array.from(u16);
+          } else {
+            const u8 = new Uint8Array(idxBuf, idxOff, idxAcc.count);
+            indices = Uint32Array.from(u8);
+          }
         }
       }
       meshes.push({ format: "glb", positions, indices });

@@ -5,6 +5,8 @@ describe("MeshLoader", () => {
   it("detects formats from URIs", () => {
     const loader = new MeshLoader();
     expect(loader.detectFormat("https://x/tileset.json")).toBe("3dtiles");
+    // A `.b3dm` under a /3dtiles/ path directory must NOT be misdetected as 3dtiles.
+    expect(loader.detectFormat("https://data.mars3d.cn/3dtiles/qx-simiao/Data/Tile_X/Tile_X.b3dm")).toBe("glb");
     expect(loader.detectFormat("a/b/c.glb")).toBe("glb");
     expect(loader.detectFormat("a/b/c.b3dm")).toBe("glb");
     expect(loader.detectFormat("a.obj")).toBe("obj");
@@ -13,6 +15,18 @@ describe("MeshLoader", () => {
     expect(loader.detectFormat("a.osgb")).toBe("osgb");
     expect(loader.detectFormat("a.las")).toBe("las");
     expect(loader.detectFormat("a.laz")).toBe("laz");
+  });
+
+  it("detects formats from magic bytes", () => {
+    const loader = new MeshLoader();
+    // 'glTF' magic 0x46546c67 → glb.
+    const glbBytes = new ArrayBuffer(12);
+    new DataView(glbBytes).setUint32(0, 0x46546c67, true);
+    expect(loader.detectFormat("unknown.bin", glbBytes)).toBe("glb");
+    // 'b3dm' magic 0x6d643362 → glb (header is stripped at decode time).
+    const b3dmBytes = new ArrayBuffer(28);
+    new DataView(b3dmBytes).setUint32(0, 0x6d643362, true);
+    expect(loader.detectFormat("unknown.bin", b3dmBytes)).toBe("glb");
   });
 
   it("decodes an OBJ buffer", async () => {
@@ -78,5 +92,69 @@ end_header
     loader.registerDecoder("osgb", () => ({ format: "osgb", positions: new Float32Array([0, 0, 0]) }));
     const meshes = await loader.decode("osgb", new ArrayBuffer(0), "x.osgb");
     expect(meshes[0].format).toBe("osgb");
+  });
+
+  it("loads 3DTiles with nested (external) tilesets via fetch", async () => {
+    // Build a synthetic tile tree:
+    //   root tileset.json   (1.0 spec: content.uri)
+    //     └── root.content.uri = "nested.json"     (external tileset)
+    //           └── nested.root.content.url = "leaf.obj"  (0.0 spec: content.url)
+    // Verifies both the 1.0 `uri` and 0.0 `url` fields are honoured.
+    const rootTileset = {
+      asset: { version: "1.0" },
+      root: {
+        transform: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+        geometricError: 100,
+        content: { uri: "nested.json" },
+        children: [],
+      },
+    };
+    const nestedTileset = {
+      asset: { version: "0.0" },
+      root: {
+        transform: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 100, 0, 0, 1],
+        geometricError: 1,
+        content: { url: "leaf.obj" },
+        children: [],
+      },
+    };
+    const obj = `v 0 0 0
+v 1 0 0
+v 0 1 0
+f 1 2 3
+`;
+
+    // Stub the global `fetch` so the loader can resolve the synthetic tree.
+    const originalFetch = globalThis.fetch;
+    const files: Record<string, string> = {
+      "https://x/tileset.json": JSON.stringify(rootTileset),
+      "https://x/nested.json": JSON.stringify(nestedTileset),
+      "https://x/leaf.obj": obj,
+    };
+    globalThis.fetch = ((input: any) => {
+      const url = typeof input === "string" ? input : String(input);
+      const body = files[url];
+      if (body === undefined) return Promise.resolve(new Response("", { status: 404 }));
+      const isJson = url.endsWith(".json");
+      return Promise.resolve(
+        new Response(body, {
+          status: 200,
+          headers: { "Content-Type": isJson ? "application/json" : "application/octet-stream" },
+        }),
+      );
+    }) as any;
+
+    try {
+      const loader = new MeshLoader();
+      const meshes = await loader.load("https://x/tileset.json", { maxTiles: 8 });
+      // 1 mesh (the leaf OBJ) should be returned.
+      expect(meshes.length).toBe(1);
+      // The leaf mesh must inherit the nested root transform (translate X by 100).
+      expect(meshes[0].transform).toBeDefined();
+      // Transform is column-major; translation lives in indices 12,13,14.
+      expect((meshes[0].transform as number[])[12]).toBe(100);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });
