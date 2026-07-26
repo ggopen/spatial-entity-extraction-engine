@@ -1,0 +1,41 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "@seee/core": ["packages/core/src/index.ts"],
+      "@seee/core/*": ["packages/core/src/*"],
+      "@seee/geometry": ["packages/geometry/src/index.ts"],
+      "@seee/geometry/*": ["packages/geometry/src/*"],
+      "@seee/graph": ["packages/graph/src/index.ts"],
+      "@seee/graph/*": ["packages/graph/src/*"],
+      "@seee/segmentation": ["packages/segmentation/src/index.ts"],
+      "@seee/segmentation/*": ["packages/segmentation/src/*"],
+      "@seee/entity": ["packages/entity/src/index.ts"],
+      "@seee/entity/*": ["packages/entity/src/*"],
+      "@seee/topology": ["packages/topology/src/index.ts"],
+      "@seee/topology/*": ["packages/topology/src/*"],
+      "@seee/scene-graph": ["packages/scene-graph/src/index.ts"],
+      "@seee/scene-graph/*": ["packages/scene-graph/src/*"],
+      "@seee/workers": ["packages/workers/src/index.ts"],
+      "@seee/workers/*": ["packages/workers/src/*"],
+      "@seee/sdk": ["packages/sdk/src/index.ts"],
+      "@seee/sdk/*": ["packages/sdk/src/*"]
+    }
+  },
+  "include": [
+    "packages/*/src/**/*.ts",
+    "packages/*/test/**/*.ts",
+    "apps/*/src/**/*.ts",
+    "tests/**/*.ts",
+    "vitest.config.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "**/dist/**",
+    "**/build/**",
+    "coverage"
+  ]
+}

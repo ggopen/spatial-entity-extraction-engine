@@ -16,7 +16,7 @@ function makeRegion(id: number, triIds: number[], normal: [number, number, numbe
 }
 
 function makeTri(id: number, regionId: number, neighbors: number[] = []): Triangle {
-  return { id, vertices: [id * 3, id * 3 + 1, id * 3 + 2], normal: [0, 0, 1], centroid: [id, 0, 0], neighbors, regionId, area: 1 };
+  return { id, vertices: [id * 3, id * 3 + 1, id * 3 + 2], normal: [0, 0, 1], centroid: [id, 0, 0], bbox: { min: [id, 0, 0], max: [id, 0, 0] }, neighbors, regionId, area: 1 };
 }
 
 describe("TopologyMerge", () => {
@@ -68,8 +68,8 @@ describe("TopologyMerge", () => {
   });
 
   it("mergeEntityBBoxes unions boxes", () => {
-    const a = { min: [0, 0, 0], max: [1, 1, 1] };
-    const b = { min: [2, 2, 2], max: [3, 3, 3] };
+    const a = { min: [0, 0, 0] as [number, number, number], max: [1, 1, 1] as [number, number, number] };
+    const b = { min: [2, 2, 2] as [number, number, number], max: [3, 3, 3] as [number, number, number] };
     const m = mergeEntityBBoxes(a, b);
     expect(m.min).toEqual([0, 0, 0]);
     expect(m.max).toEqual([3, 3, 3]);

@@ -24,7 +24,9 @@ export class EntityBuilder {
       area += r.area;
     }
     const tris = triIds.map((i) => triangles[i]);
-    const bbox = tris.length > 0 ? bboxFromTriangles(tris) : { min: [0, 0, 0], max: [0, 0, 0] };
+    const bbox = tris.length > 0
+      ? bboxFromTriangles(tris)
+      : { min: [0, 0, 0] as [number, number, number], max: [0, 0, 0] as [number, number, number] };
     const obb = obbFromTriangles(tris);
     return {
       id,

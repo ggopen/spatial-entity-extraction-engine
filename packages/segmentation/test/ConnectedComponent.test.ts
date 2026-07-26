@@ -8,6 +8,7 @@ function fakeTris(regionIds: number[]): Triangle[] {
     vertices: [i * 3, i * 3 + 1, i * 3 + 2],
     normal: [0, 0, 1],
     centroid: [i, 0, 0],
+    bbox: { min: [i, 0, 0], max: [i, 0, 0] },
     neighbors: [],
     regionId: rid,
     area: 1,

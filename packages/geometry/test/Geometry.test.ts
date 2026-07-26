@@ -40,9 +40,9 @@ describe("BoundingBox", () => {
   });
 
   it("bboxIntersects", () => {
-    const a = { min: [0, 0, 0], max: [2, 2, 2] };
-    const b = { min: [1, 1, 1], max: [3, 3, 3] };
-    const c = { min: [5, 5, 5], max: [6, 6, 6] };
+    const a = { min: [0, 0, 0] as [number, number, number], max: [2, 2, 2] as [number, number, number] };
+    const b = { min: [1, 1, 1] as [number, number, number], max: [3, 3, 3] as [number, number, number] };
+    const c = { min: [5, 5, 5] as [number, number, number], max: [6, 6, 6] as [number, number, number] };
     expect(bboxIntersects(a, b)).toBe(true);
     expect(bboxIntersects(a, c)).toBe(false);
   });

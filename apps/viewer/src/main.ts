@@ -231,7 +231,7 @@ function selectEntity(id: number): void {
   // Update list highlight state.
   selectedId = id;
   highlightEntity(id);
-  document.querySelectorAll("#entityList li").forEach((li) => {
+  document.querySelectorAll<HTMLElement>("#entityList li").forEach((li) => {
     li.classList.toggle("active", li.dataset.id === String(id));
   });
 }
@@ -253,7 +253,7 @@ function renderEntityList(entities: Entity[]): void {
 
 function applyFilter(): void {
   const q = elFilter.value.trim().toLowerCase();
-  document.querySelectorAll("#entityList li").forEach((li) => {
+  document.querySelectorAll<HTMLElement>("#entityList li").forEach((li) => {
     const text = li.textContent ?? "";
     li.style.display = !q || text.toLowerCase().includes(q) ? "" : "none";
   });
